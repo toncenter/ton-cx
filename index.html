@@ -1,0 +1,399 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TON Scan</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            background: #F8F9FA;
+        }
+
+        .main {
+            margin-left: 10px;
+            margin-right: 10px;
+        }
+
+        .input-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: 40px;
+            width: 100%;
+            margin-bottom: 40px;
+        }
+
+        .input-container input {
+            padding-left: 10px;
+            padding-right: 10px;
+            border: 1px solid #eee;
+            height: 48px;
+        }
+
+        .input-container button {
+            background-color: #3498db;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+            color: white;
+            border: none;
+            width: 48px;
+            height: 48px;
+            cursor: pointer;
+        }
+
+        .input-container button:hover {
+            background-color: #2c81b9;
+        }
+
+        #input {
+            width: 100%;
+        }
+
+        .address-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+        }
+
+        .address-h {
+            font-size: 24px;
+            margin-right: 10px;
+        }
+
+        .address-v {
+            color: gray;
+            font-size: 20px;
+            font-family: monospace;
+        }
+
+        .overview-container {
+            margin-top: 20px;
+            width: 50%;
+            padding-left: 10px;
+            padding-right: 10px;
+
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 10px rgba(0, 0, 0, 0.1);
+
+            font-size: 16px;
+        }
+
+        .overview-row {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            padding-top: 10px;
+            padding-bottom: 10px;
+        }
+
+        .overview-title {
+            font-weight: bold;
+            border-bottom: 1px solid #eee;
+        }
+
+        .overview-h {
+            flex-grow: 0.5;
+            color: #444;
+        }
+
+        .overview-v {
+            flex-grow: 1;
+        }
+
+        table {
+            margin-top: 40px;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 10px rgba(0, 0, 0, 0.1);
+            padding-left: 10px;
+            padding-right: 10px;
+            font-size: 14px;
+
+            width: fit-content;
+        }
+
+        td {
+            padding-top: 10px;
+            padding-bottom: 10px;
+
+            border-bottom: 1px solid #eee;
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        thead {
+            font-weight: bold;
+        }
+
+        thead td {
+            border-bottom: 1px solid #eee !important;
+        }
+
+        .addr {
+            font-family: monospace;
+            font-size: 14px;
+
+            width: 260px;
+            hyphens: manual;
+            user-select: text;
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            cursor: text;
+        }
+
+        .in {
+            color: #02977e;
+            background-color: rgba(0, 201, 167, .2);
+            font-weight: bold;
+            display: inline-block;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            border-radius: 4px;
+            font-size: 12px;
+            width: 32px;
+            text-align: center;
+        }
+
+        .out {
+            color: #b47d00;
+            background-color: rgba(219, 154, 4, .2);
+            font-weight: bold;
+            display: inline-block;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            border-radius: 4px;
+            font-size: 12px;
+            width: 32px;
+            text-align: center;
+        }
+
+        a, a:active, a:hover {
+            color: #3498db;
+            text-decoration: none;
+        }
+
+        .no-tx {
+            margin-top: 100px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+    </style>
+
+</head>
+<body>
+<center>
+    <h2>Full featured block explorer is under development. Basic account info is available for now.</h2>
+    <h3>Extended, but raw transaction information can be accessed via <a href="https://explorer.toncoin.org" target="_blank">explorer.toncoin.org</a></h3>
+</center>
+<div class="input-container">
+    <input id="input" type="text" value="">
+    <button onclick="onClick()">Go</button>
+</div>
+
+<div class="main">
+
+    <div class="address-container">
+        <div class="address-h">
+            Address
+        </div>
+        <div class="address-v">
+        </div>
+    </div>
+
+    <div class="overview-container">
+        <div class="overview-row overview-title">
+            Overview
+        </div>
+        <div class="overview-row">
+            <div class="overview-h">
+                Balance
+            </div>
+            <div class="overview-v balance-v">
+            </div>
+        </div>
+    </div>
+
+    <table cellspacing="0" cellpadding="0">
+        <thead>
+        <tr>
+            <td>Tx Hash</td>
+            <td>Time</td>
+            <td>From</td>
+            <td></td>
+            <td>To</td>
+            <td>Amount</td>
+            <td>Comment</td>
+        </tr>
+        </thead>
+        <tbody>
+
+        </tbody>
+
+    </table>
+
+    <div class="no-tx">No transactions</div>
+</div>
+
+<script>
+    function request(method, params, callback) {
+        var xrq = new XMLHttpRequest();
+        xrq.onreadystatechange = function () {
+            if (xrq.readyState == 4 && xrq.status == 200) {
+                callback(JSON.parse(xrq.responseText)['result']);
+            } else {
+                if (xrq.readyState == 0 && xrq.status == 4) {
+                    console.log('error')
+                }
+            }
+
+        }
+        var api = "https://toncenter.com/api/v2/jsonRPC";
+        xrq.open("POST", api, true);
+        var request = {"id": 1, "jsonrpc": "2.0", "method": method, "params": params};
+        xrq.setRequestHeader("content-type", "application/json");
+        xrq.send(JSON.stringify(request));
+    }
+
+    const $ = (selector) => document.querySelector(selector);
+
+    function formatAddr(s) {
+        if (!s) return '';
+        return s.substring(0, s.length / 2) + '<wbr>' + s.substring(s.length / 2);
+    }
+
+    function base64toString(base64) {
+        return atob(base64);
+    }
+
+    /**
+     * @param base64  {string}
+     * @return {Uint8Array}
+     */
+    function base64ToBytes(base64) {
+        const binary_string = base64toString(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    function base64ToBytes(base64) {
+        const binary_string = base64toString(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    function getComment(msg) {
+        if (!msg) return '';
+        if (!msg.msg_data) return '';
+        if (msg.msg_data['@type'] !== 'msg.dataText') return '<i>unsupported data</i>';
+        const base64 = msg.msg_data.text;
+        return new TextDecoder().decode(base64ToBytes(base64));
+    }
+
+    function scan() {
+        $('.address-v').innerText = '';
+        $('.balance-v').innerText = '';
+        $('tbody').innerHTML = '';
+
+        const address = $('#input').value;
+
+        request("getWalletInformation", {address: address}, (data) => {
+            $('.main').style.display = 'block';
+            console.log(data);
+            $('.address-v').innerText = address;
+            $('.balance-v').innerText = data.balance / 1e9 + ' TON';
+        });
+
+        const makeAddressUrl = s => {
+            if (s === address) return formatAddr(s);
+            return '<a href="#address/' + s + '">' + formatAddr(s) + '</a>';
+        }
+
+        request("getTransactions", {address: address}, (data) => {
+            console.log(data);
+
+            $('.main').style.display = 'block';
+            $('table').style.display = data.length ? 'block' : 'none';
+            $('.no-tx').style.display = !data.length ? 'block' : 'none';
+
+            var s = '';
+
+            for (let tx of data) {
+                const date = new Date(tx.utime * 1000);
+
+                const inMsg = tx.in_msg;
+                const outMsg = tx.out_msgs[0];
+
+                const isInbound = Boolean(inMsg?.source);
+
+                const from = makeAddressUrl(isInbound ? inMsg?.source : address);
+                const to = makeAddressUrl(isInbound ? address : outMsg?.destination);
+
+                const msg = isInbound ? inMsg : outMsg;
+                const amount = msg?.value / 1e9 + ' TON';
+                const comment = getComment(msg);
+
+                const txHash = tx.transaction_id.lt + ':<wbr>' + tx.transaction_id.hash;
+                const txUrl = '#';
+                s += `
+            <tr>
+            <td><a href="${txUrl}" target="_blank">${txHash}</a></td>
+            <td>${date.toLocaleDateString() + ' ' + date.toLocaleTimeString()}</td>
+            <td><div class="addr">${from}</div></td>
+            <td><span class="${isInbound ? 'in' : 'out'}">${isInbound ? 'IN' : 'OUT'}</span></td>
+            <td><div class="addr">${to}</div></td>
+            <td>${amount}</td>
+            <td>${comment}</td>
+        </tr>`
+            }
+            $('tbody').innerHTML = s;
+        });
+    }
+
+    $('.main').style.display = 'none';
+
+    const onUrlChange = () => {
+        const href = window.location.href;
+        console.log(href)
+        const i = href.indexOf('#address/');
+        if (i > -1) {
+            const s = href.substr(i + '#address/'.length);
+            $('#input').value = s;
+            scan();
+        }
+    }
+
+    window.addEventListener('popstate', () => onUrlChange())
+
+    onUrlChange();
+
+    const onClick = () => {
+        const href = window.location.href;
+        const i = href.indexOf('#');
+        window.location.href = href.substr(0, i) + '#address/' + $('input').value;
+    }
+</script>
+
+</body>
+</html>
