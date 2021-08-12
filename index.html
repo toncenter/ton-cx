@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -183,6 +182,7 @@
         a, a:active, a:hover {
             color: #3498db;
             text-decoration: none;
+            cursor: pointer;
         }
 
         .no-tx {
@@ -197,7 +197,8 @@
 <body>
 <center>
     <h2>Full featured block explorer is under development. Basic account info is available for now.</h2>
-    <h3>Extended, but raw transaction information can be accessed via <a href="https://explorer.toncoin.org" target="_blank">explorer.toncoin.org</a></h3>
+    <h3>Extended, but raw transaction information can be accessed via <a href="https://explorer.toncoin.org"
+                                                                         target="_blank">explorer.toncoin.org</a></h3>
 </center>
 <div class="input-container">
     <input id="input" type="text" value="">
@@ -248,6 +249,8 @@
     <div class="no-tx">No transactions</div>
 </div>
 
+<div class="tx"></div>
+
 <script>
     function request(method, params, callback) {
         var xrq = new XMLHttpRequest();
@@ -266,6 +269,23 @@
         var request = {"id": 1, "jsonrpc": "2.0", "method": method, "params": params};
         xrq.setRequestHeader("content-type", "application/json");
         xrq.send(JSON.stringify(request));
+    }
+
+    function httpGet(url, callback) {
+        var xrq = new XMLHttpRequest();
+        xrq.onreadystatechange = function () {
+            if (xrq.readyState == 4 && xrq.status == 200) {
+                callback(JSON.parse(xrq.responseText)['result']);
+            } else {
+                if (xrq.readyState == 0 && xrq.status == 4) {
+                    console.log('error')
+                }
+            }
+
+        }
+        xrq.open("GET", url, true);
+        xrq.setRequestHeader("content-type", "application/json");
+        xrq.send();
     }
 
     const $ = (selector) => document.querySelector(selector);
@@ -303,6 +323,29 @@
         return bytes;
     }
 
+    const to_hex_array = [];
+    const to_byte_map = {};
+    for (let ord = 0; ord <= 0xff; ord++) {
+        let s = ord.toString(16);
+        if (s.length < 2) {
+            s = "0" + s;
+        }
+        to_hex_array.push(s);
+        to_byte_map[s] = ord;
+    }
+    /**
+     * @param buffer  {Uint8Array}
+     * @return {string}
+     */
+    function bytesToHex(buffer) {
+        const hex_array = [];
+        //(new Uint8Array(buffer)).forEach((v) => { hex_array.push(to_hex_array[v]) });
+        for (let i = 0; i < buffer.byteLength; i++) {
+            hex_array.push(to_hex_array[buffer[i]]);
+        }
+        return hex_array.join("");
+    }
+
     function getComment(msg) {
         if (!msg) return '';
         if (!msg.msg_data) return '';
@@ -311,7 +354,27 @@
         return new TextDecoder().decode(base64ToBytes(base64));
     }
 
-    function scan() {
+    function scanTx() {
+        $('.main').style.display = 'none';
+        $('.tx').style.display = 'block';
+        $('.tx').innerText = '';
+
+        const s = $('#input').value;
+        const tx = s.split(':');
+        if (tx.length !== 3) return;
+        const lt = tx[0];
+        const hash = bytesToHex(base64ToBytes(tx[1]));
+        const address = tx[2];
+
+        request("getTransactions", {address: address, lt: lt, hash: hash, limit: 1}, (data) => {
+            console.log(data);
+            $('.tx').innerText = JSON.stringify(data);
+        });
+    }
+
+    function scanAddress() {
+        $('.tx').style.display = 'none';
+
         $('.address-v').innerText = '';
         $('.balance-v').innerText = '';
         $('tbody').innerHTML = '';
@@ -327,7 +390,7 @@
 
         const makeAddressUrl = s => {
             if (s === address) return formatAddr(s);
-            return '<a href="#address/' + s + '">' + formatAddr(s) + '</a>';
+            return '<a href="/address/' + s + '">' + formatAddr(s) + '</a>';
         }
 
         request("getTransactions", {address: address}, (data) => {
@@ -347,18 +410,19 @@
 
                 const isInbound = Boolean(inMsg?.source);
 
-                const from = makeAddressUrl(isInbound ? inMsg?.source : address);
-                const to = makeAddressUrl(isInbound ? address : outMsg?.destination);
+                const fromRaw = isInbound ? inMsg?.source : address;
+                const toRaw = isInbound ? address : outMsg?.destination;
+
+                const from = makeAddressUrl(fromRaw);
+                const to = makeAddressUrl(toRaw);
 
                 const msg = isInbound ? inMsg : outMsg;
                 const amount = msg?.value / 1e9 + ' TON';
                 const comment = getComment(msg);
 
-                const txHash = tx.transaction_id.lt + ':<wbr>' + tx.transaction_id.hash;
-                const txUrl = '#';
                 s += `
             <tr>
-            <td><a href="${txUrl}" target="_blank">${txHash}</a></td>
+            <td>${isInbound ? '' : `<a onclick="onClickTx(${outMsg?.created_lt}, '${fromRaw}', '${toRaw}')">Link</a>`}</td>
             <td>${date.toLocaleDateString() + ' ' + date.toLocaleTimeString()}</td>
             <td><div class="addr">${from}</div></td>
             <td><span class="${isInbound ? 'in' : 'out'}">${isInbound ? 'IN' : 'OUT'}</span></td>
@@ -371,27 +435,50 @@
         });
     }
 
+    const onClickTx = (createdLt, from, to) => {
+        console.log(createdLt, from, to);
+
+        httpGet(`http://toncenter.com:5555/tryLocateTx?source=${from}&destination=${to}&created_lt=${createdLt}`, (data) => {
+            console.log(data);
+            setHref('/tx/' + data.transaction_id.lt + ':' + data.transaction_id.hash + ':' + data.in_msg.source);
+        });
+    }
+
     $('.main').style.display = 'none';
 
     const onUrlChange = () => {
         const href = window.location.href;
         console.log(href)
-        const i = href.indexOf('#address/');
+        let i = href.indexOf('address/');
         if (i > -1) {
-            const s = href.substr(i + '#address/'.length);
+            const s = href.substr(i + 'address/'.length);
             $('#input').value = s;
-            scan();
+            scanAddress();
+        } else {
+            let i = href.indexOf('tx/');
+            if (i > -1) {
+                const s = href.substr(i + 'tx/'.length);
+                $('#input').value = s;
+                scanTx();
+            }
         }
     }
 
-    window.addEventListener('popstate', () => onUrlChange())
+    window.addEventListener('popstate', () => onUrlChange());
 
     onUrlChange();
 
     const onClick = () => {
+        const value = $('input').value;
+        const isTx = value.split(':').length === 3;
+        setHref((isTx ? '/tx/' : '/address/') + value)
+    }
+
+    const setHref = (newHref) => {
         const href = window.location.href;
-        const i = href.indexOf('#');
-        window.location.href = href.substr(0, i) + '#address/' + $('input').value;
+        let i = href.indexOf('/address/');
+        if (i === -1) i = href.indexOf('/tx/');
+        window.location.href = href.substr(0, i) + newHref;
     }
 </script>
 
