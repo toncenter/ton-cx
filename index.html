@@ -580,8 +580,28 @@
 
     const $ = (selector) => document.querySelector(selector);
 
+    const known_accounts ={
+        "EQB5lISMH8vLxXpqWph7ZutCS4tU4QdZtrUUpmtgDCsO73JR":"EXMO Collector 1",
+        "EQABMMdzRuntgt9nfRB61qd1wR-cGPagXA3ReQazVYUNrT7p":"EXMO Deposit 1",
+        "Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF":"Elector Contract",
+        "Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn":"Config Contract",
+        "Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW":"Log tests Contract",
+        'Ef-kkdY_B7p-77TLn2hUhM6QidWrrsl8FYWCIvBMpZKprKDH':"PoW Giver 1",
+        'Ef8SYc83pm5JkGt0p3TQRkuiM58O9Cr3waUtR9OoFq716uj0':"PoW Giver 2",
+        'Ef-FV4QTxLl-7Ct3E6MqOtMt-RGXMxi27g4I645lw6MTWg0f':"PoW Giver 3",
+        'Ef_NSzfDJI1A3rOM0GQm7xsoUXHTgmdhN5-OrGD8uwL2JHBa':"PoW Giver 4",
+        'Ef8gf1PQy4u2kURl-Gz4LbS29eaN4sVdrVQkPO-JL80VhFww':"PoW Giver 5",
+        'Ef8kO6K6Qh6YM4ddjRYYlvVAK7IgyW8Zet-4ZvNrVsmQ4PgP':"PoW Giver 6",
+        'Ef-P_TOdwcCh0AXHhBpICDMxStxHenWdLCDLNH5QcNpwMMn2':"PoW Giver 7",
+        'Ef91o4NNTryJ-Cw3sDGt9OTiafmETdVFUMvylQdFPoOxInls':"PoW Giver 8",
+        'Ef9iWhwk9GwAXjtwKG-vN7rmXT3hLIT23RBY6KhVaynRrDkx':"PoW Giver 9",
+        'Ef8JfFUEJhhpRW80_jqD7zzQteH6EBHOzxiOhygRhBdt44YH':"PoW Giver 10"
+
+    };
+
     function formatAddr(s) {
         if (!s) return '';
+        if (known_accounts[s]) return known_accounts[s];
         return s.substring(0, s.length / 2) + '<wbr>' + s.substring(s.length / 2);
     }
 
@@ -729,34 +749,13 @@
             }
         });
     }
-    const known_accounts ={
-        "EQB5lISMH8vLxXpqWph7ZutCS4tU4QdZtrUUpmtgDCsO73JR":"Exmo Collector",
-        "EQABMMdzRuntgt9nfRB61qd1wR-cGPagXA3ReQazVYUNrT7p":"Exmo Deposit",
-        "Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF":"Elector Contract",
-        "Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn":"Config Contract",
-        "Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW":"Log tests Contract",
-        'Ef-kkdY_B7p-77TLn2hUhM6QidWrrsl8FYWCIvBMpZKprKDH':"PoW Giver 1",
-        'Ef8SYc83pm5JkGt0p3TQRkuiM58O9Cr3waUtR9OoFq716uj0':"PoW Giver 2",
-        'Ef-FV4QTxLl-7Ct3E6MqOtMt-RGXMxi27g4I645lw6MTWg0f':"PoW Giver 3",
-        'Ef_NSzfDJI1A3rOM0GQm7xsoUXHTgmdhN5-OrGD8uwL2JHBa':"PoW Giver 4",
-        'Ef8gf1PQy4u2kURl-Gz4LbS29eaN4sVdrVQkPO-JL80VhFww':"PoW Giver 5",
-        'Ef8kO6K6Qh6YM4ddjRYYlvVAK7IgyW8Zet-4ZvNrVsmQ4PgP':"PoW Giver 6",
-        'Ef-P_TOdwcCh0AXHhBpICDMxStxHenWdLCDLNH5QcNpwMMn2':"PoW Giver 7",
-        'Ef91o4NNTryJ-Cw3sDGt9OTiafmETdVFUMvylQdFPoOxInls':"PoW Giver 8",
-        'Ef9iWhwk9GwAXjtwKG-vN7rmXT3hLIT23RBY6KhVaynRrDkx':"PoW Giver 9",
-        'Ef8JfFUEJhhpRW80_jqD7zzQteH6EBHOzxiOhygRhBdt44YH':"PoW Giver 10"
 
-    };
     const makeAddressUrl = s => {
+        if (s === $('#input').value) return formatAddr(s);
 
-        if(known_accounts[s]) {
-            s_ = `<strong>${known_accounts[s]}</strong> <nobr>${s.slice(0,24)}</nobr><nobr>${s.slice(24)}</nobr>`;
-        } else {
-            s_ = `<nobr>${s.slice(0,24)}</nobr><nobr>${s.slice(24)}</nobr>`;
-        }
-        if (s === $('#input').value) return formatAddr(s_);
-        return '<a href="/address/' + s + '">' + formatAddr(s_) + '</a>';
+        return '<a href="/address/' + s + '">' + formatAddr(s) + '</a>';
     }
+
     const display_txses = (data) => {
         console.log(data);
 
