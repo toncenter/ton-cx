@@ -202,7 +202,7 @@
 </center>
 <div class="input-container">
     <input id="input" type="text" value="">
-    <button onclick="onClick()">Go</button>
+    <button id="search-button" onclick="onClick()">Go</button>
 </div>
 
 <div class="main">
@@ -231,7 +231,7 @@
     <table cellspacing="0" cellpadding="0">
         <thead>
         <tr>
-            <td>Tx Hash</td>
+            <td>Tx</td>
             <td>Time</td>
             <td>From</td>
             <td></td>
@@ -247,10 +247,300 @@
     </table>
 
     <div class="no-tx">No transactions</div>
+    <button id="next-button" onclick="loadNext();">Next</button>
 </div>
 
-<div class="tx"></div>
+<div class="tx">
+    <table id="tx-table">
+        <tbody id="tx-table-body">
 
+        </tbody>
+    </table>
+</div>
+<script>
+    // look up tables
+    const to_hex_array = [];
+    const to_byte_map = {};
+    for (let ord = 0; ord <= 0xff; ord++) {
+        let s = ord.toString(16);
+        if (s.length < 2) {
+            s = "0" + s;
+        }
+        to_hex_array.push(s);
+        to_byte_map[s] = ord;
+    }
+
+    //  converter using lookups
+    /**
+     * @param buffer  {Uint8Array}
+     * @return {string}
+     */
+    function bytesToHex(buffer) {
+        const hex_array = [];
+        //(new Uint8Array(buffer)).forEach((v) => { hex_array.push(to_hex_array[v]) });
+        for (let i = 0; i < buffer.byteLength; i++) {
+            hex_array.push(to_hex_array[buffer[i]]);
+        }
+        return hex_array.join("");
+    }
+
+    // reverse conversion using lookups
+    /**
+     * @param s {string}
+     * @return {Uint8Array}
+     */
+    function hexToBytes(s) {
+        s = s.toLowerCase();
+        const length2 = s.length;
+        if (length2 % 2 !== 0) {
+            throw "hex string must have length a multiple of 2";
+        }
+        const length = length2 / 2;
+        const result = new Uint8Array(length);
+        for (let i = 0; i < length; i++) {
+            const i2 = i * 2;
+            const b = s.substring(i2, i2 + 2);
+            result[i] = to_byte_map[b];
+        }
+        return result;
+    }
+
+    /**
+     * @param str {string}
+     * @param size  {number}
+     * @return {Uint8Array}
+     */
+    function stringToBytes(str, size = 1) {
+        let buf;
+        let bufView;
+        if (size === 1) {
+            buf = new ArrayBuffer(str.length);
+            bufView = new Uint8Array(buf);
+        }
+        if (size === 2) {
+            buf = new ArrayBuffer(str.length * 2);
+            bufView = new Uint16Array(buf);
+        }
+        if (size === 4) {
+            buf = new ArrayBuffer(str.length * 4);
+            bufView = new Uint32Array(buf);
+        }
+        for (let i = 0, strLen = str.length; i < strLen; i++) {
+            bufView[i] = str.charCodeAt(i);
+        }
+        return new Uint8Array(bufView.buffer);
+    }
+
+
+    function crc16(data) {
+        const poly = 0x1021;
+        let reg = 0;
+        const message = new Uint8Array(data.length + 2);
+        message.set(data);
+        for (let byte of message) {
+            let mask = 0x80;
+            while (mask > 0) {
+                reg <<= 1;
+                if (byte & mask) {
+                    reg += 1;
+                }
+                mask >>= 1
+                if (reg > 0xffff) {
+                    reg &= 0xffff;
+                    reg ^= poly;
+                }
+            }
+        }
+        return new Uint8Array([Math.floor(reg / 256), reg % 256]);
+    }
+
+    function base64toString(base64) {
+        if (typeof window === 'undefined') {
+            return new Buffer(base64, 'base64').toString('binary');
+        } else {
+            return atob(base64);
+        }
+    }
+
+    function stringToBase64(s) {
+        if (typeof window === 'undefined') {
+            return Buffer.from(s, "binary").toString('base64')
+        } else {
+            return btoa(s);
+        }
+    }
+
+    /**
+     * @param base64  {string}
+     * @return {Uint8Array}
+     */
+    function base64ToBytes(base64) {
+        const binary_string = base64toString(base64);
+        const len = binary_string.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary_string.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    /**
+     * @param n  {number}
+     * @param ui8array  {Uint8Array}
+     * @return {number}
+     */
+    function readNBytesUIntFromArray(n, ui8array) {
+        let res = 0;
+        for (let c = 0; c < n; c++) {
+            res *= 256;
+            res += ui8array[c];
+        }
+        return res;
+    }
+
+
+    const {crc16, hexToBytes, bytesToHex, stringToBytes, base64toString, stringToBase64} = require("./index");
+
+    const bounceable_tag = 0x11;
+    const non_bounceable_tag = 0x51;
+    const test_flag = 0x80;
+
+    /**
+     * @private
+     * @param addressString {string}
+     * @return {{isTestOnly: boolean, workchain: number, hashPart: Uint8Array, isBounceable: boolean}}
+     */
+    function parseFriendlyAddress(addressString) {
+        const data = stringToBytes(base64toString(addressString));
+        if (data.length !== 36) { // 1byte tag + 1byte workchain + 32 bytes hash + 2 byte crc
+            throw "Unknown address type: byte length is not equal to 36";
+        }
+        const addr = data.slice(0, 34);
+        const crc = data.slice(34, 36);
+        const calcedCrc = crc16(addr);
+        if (!(calcedCrc[0] === crc[0] && calcedCrc[1] === crc[1])) {
+            throw "Wrong crc16 hashsum";
+        }
+        let tag = addr[0];
+        let isTestOnly = false;
+        let isBounceable = false;
+        if (tag & test_flag) {
+            isTestOnly = true;
+            tag = tag ^ test_flag;
+        }
+        if ((tag !== bounceable_tag) && (tag !== non_bounceable_tag))
+            throw "Unknown address tag";
+
+        isBounceable = tag === bounceable_tag;
+
+        let workchain = null;
+        if (addr[1] === 0xff) { // TODO we should read signed integer here
+            workchain = -1;
+        } else {
+            workchain = addr[1];
+        }
+
+        const hashPart = addr.slice(2, 34);
+        return {isTestOnly, isBounceable, workchain, hashPart};
+    }
+
+    class Address {
+        /**
+         * @param anyForm {string | Address}
+         */
+        static isValid(anyForm) {
+            try {
+                new Address(anyForm);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        /**
+         * @param anyForm {string | Address}
+         */
+        constructor(anyForm) {
+            if (anyForm == null) {
+                throw "Invalid address";
+            }
+
+            if (anyForm instanceof Address) {
+                this.wc = anyForm.wc;
+                this.hashPart = anyForm.hashPart;
+                this.isTestOnly = anyForm.isTestOnly;
+                this.isUserFriendly = anyForm.isUserFriendly;
+                this.isBounceable = anyForm.isBounceable;
+                this.isUrlSafe = anyForm.isUrlSafe;
+                return;
+            }
+
+            if (anyForm.search(/\-/) > 0 || anyForm.search(/_/) > 0) {
+                this.isUrlSafe = true;
+                anyForm = anyForm.replace(/\-/g, '+').replace(/_/g, '\/');
+            } else {
+                this.isUrlSafe = false;
+            }
+            if (anyForm.search(":") > 0) {
+                this.isUserFriendly = false;
+                this.wc = parseInt(anyForm.split(":")[0]);
+                this.hashPart = hexToBytes(anyForm.split(":")[1]);
+                this.isTestOnly = false;
+                this.isBounceable = false;
+            } else {
+                this.isUserFriendly = true;
+                const parseResult = parseFriendlyAddress(anyForm);
+                this.wc = parseResult.workchain;
+                this.hashPart = parseResult.hashPart;
+                this.isTestOnly = parseResult.isTestOnly;
+                this.isBounceable = parseResult.isBounceable;
+            }
+        }
+
+        /**
+         * @param isUserFriendly? {boolean}
+         * @param isUrlSafe? {boolean}
+         * @param isBounceable? {boolean}
+         * @param isTestOnly? {boolean}
+         * @return {string}
+         */
+        toString(isUserFriendly,
+                 isUrlSafe,
+                 isBounceable,
+                 isTestOnly) {
+
+            if (isUserFriendly === undefined) isUserFriendly = this.isUserFriendly;
+            if (isUrlSafe === undefined) isUrlSafe = this.isUrlSafe;
+            if (isBounceable === undefined) isBounceable = this.isBounceable;
+            if (isTestOnly === undefined) isTestOnly = this.isTestOnly;
+
+            if (!isUserFriendly) {
+                return this.wc + ":" + bytesToHex(this.hashPart);
+            } else {
+                let tag = isBounceable ? bounceable_tag : non_bounceable_tag;
+                if (isTestOnly) {
+                    tag |= test_flag;
+                }
+
+                const addr = new Int8Array(34);
+                addr[0] = tag;
+                addr[1] = this.wc;
+                addr.set(this.hashPart, 2);
+
+                const addressWithChecksum = new Uint8Array(36);
+                addressWithChecksum.set(addr);
+                addressWithChecksum.set(crc16(addr), 34);
+                let addressBase64 = stringToBase64(String.fromCharCode.apply(null, new Uint8Array(addressWithChecksum)));
+
+                if (isUrlSafe) {
+                    addressBase64 = addressBase64.replace(/\+/g, '-').replace(/\//g, '_');
+                }
+                return addressBase64;
+            }
+        }
+    }
+
+</script>
 <script>
     function request(method, params, callback) {
         var xrq = new XMLHttpRequest();
@@ -264,7 +554,7 @@
             }
 
         }
-        var api = "https://toncenter.com/api/v2/jsonRPC";
+        var api = "https://toncenter.com/api/test/v2/jsonRPC";
         xrq.open("POST", api, true);
         var request = {"id": 1, "jsonrpc": "2.0", "method": method, "params": params};
         xrq.setRequestHeader("content-type", "application/json");
@@ -357,7 +647,11 @@
     function scanTx() {
         $('.main').style.display = 'none';
         $('.tx').style.display = 'block';
-        $('.tx').innerText = '';
+        $('.tx').innerHTML = `<table id="tx-table">
+        <tbody id="tx-table-body">
+
+        </tbody>
+  </table>`;
 
         const s = $('#input').value;
         const tx = s.split(':');
@@ -367,11 +661,150 @@
         const address = tx[2];
 
         request("getTransactions", {address: address, lt: lt, hash: hash, limit: 1}, (data) => {
-            console.log(data);
-            $('.tx').innerText = JSON.stringify(data);
+            console.log(data[0]);
+            data=data[0];
+            //$('.tx').innerText = JSON.stringify(data[0]);
+            //$('.tx-table=').style.display = data.length ? 'block' : 'none';
+            const date = new Date(data.utime * 1000);
+            var s = '';
+            s += `
+            <tr>
+            <td>Lt and hash</td>
+            <td>${data.transaction_id.lt + ':' + bytesToHex(base64ToBytes(data.transaction_id.hash))}</td>
+            </tr>`;
+            s += `
+            <tr>
+            <td>Link to explorer.toncoin.org</td>
+            <td><a href='https://explorer.toncoin.org/transaction?account=${address}&lt=${data.transaction_id.lt}&hash=${bytesToHex(base64ToBytes(data.transaction_id.hash))}'>Link</a></td>
+            </tr>`;
+            s += `
+            <tr>
+            <td>Fee</td>
+            <td>${data.fee/1e9}</td>
+            </tr>`;
+            s += `
+            <tr id="success_status" style="display:none">
+            <td>Status</td>
+            <td><strong style="color: #009000;">✓Successfull incoming transfer</strong></td>
+            </tr>`;
+
+            function make_msg_table(msg, result) {
+                if(!msg.source) {
+                    return `<table>
+                          <tr><td>External message</td></tr>
+                          <tr><td>destination</td><td>${makeAddressUrl(msg.destination)}</td></tr>
+                      </table>`
+                }
+                return `<table>
+                        <tr>
+                          <tr><td>source</td><td>${makeAddressUrl(msg.source)}</td></tr>
+                          <tr><td>destination</td><td>${makeAddressUrl(msg.destination)}</td></tr>
+                          <tr><td>value</td><td>${msg.value/1e9} TON</td></tr>
+                          <tr><td>fwd_fee</td><td>${msg.fwd_fee/1e9} TON</td></tr>
+                          <tr><td>created_lt</td><td>${msg.created_lt}</td></tr>
+                          <tr><td>message</td><td>${getComment(msg)}</td></tr>
+                          <tr><td>${result?"Result":"Source"} transaction</td> <td><a onclick="onClickTx(${msg.created_lt}, '${msg.source}', '${msg.destination}', ${result})">Link</a></td>
+                        </tr>
+                      </table>`
+            }
+            s += `
+            <tr>
+            <td>Incoming message</td>
+            <td>${make_msg_table(data.in_msg, false)}</td>
+            </tr>`;
+            for(msg of data.out_msgs) {
+                s += `
+                <tr>
+                <td>Outcoming message</td>
+                <td>${make_msg_table(msg, true)}</td>
+                </tr>`;
+            }
+            $('#tx-table-body').innerHTML = s;
+            if(data.in_msg.value > 0 && data.out_msgs.length == 0) {
+                request("getWalletInformation", {address: address}, (data) => {
+                    if(data.wallet_type.search("wallet")>-1) {
+                        $('#success_status').style.display = 'table-row';
+                    }
+                });
+            }
         });
     }
+    const known_accounts ={
+        "EQB5lISMH8vLxXpqWph7ZutCS4tU4QdZtrUUpmtgDCsO73JR":"Exmo Collector",
+        "EQABMMdzRuntgt9nfRB61qd1wR-cGPagXA3ReQazVYUNrT7p":"Exmo Deposit",
+        "Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF":"Elector Contract",
+        "Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn":"Config Contract",
+        "Ef80UXx731GHxVr0-LYf3DIViMerdo3uJLAG3ykQZFjXz2kW":"Log tests Contract",
+        'Ef-kkdY_B7p-77TLn2hUhM6QidWrrsl8FYWCIvBMpZKprKDH':"PoW Giver 1",
+        'Ef8SYc83pm5JkGt0p3TQRkuiM58O9Cr3waUtR9OoFq716uj0':"PoW Giver 2",
+        'Ef-FV4QTxLl-7Ct3E6MqOtMt-RGXMxi27g4I645lw6MTWg0f':"PoW Giver 3",
+        'Ef_NSzfDJI1A3rOM0GQm7xsoUXHTgmdhN5-OrGD8uwL2JHBa':"PoW Giver 4",
+        'Ef8gf1PQy4u2kURl-Gz4LbS29eaN4sVdrVQkPO-JL80VhFww':"PoW Giver 5",
+        'Ef8kO6K6Qh6YM4ddjRYYlvVAK7IgyW8Zet-4ZvNrVsmQ4PgP':"PoW Giver 6",
+        'Ef-P_TOdwcCh0AXHhBpICDMxStxHenWdLCDLNH5QcNpwMMn2':"PoW Giver 7",
+        'Ef91o4NNTryJ-Cw3sDGt9OTiafmETdVFUMvylQdFPoOxInls':"PoW Giver 8",
+        'Ef9iWhwk9GwAXjtwKG-vN7rmXT3hLIT23RBY6KhVaynRrDkx':"PoW Giver 9",
+        'Ef8JfFUEJhhpRW80_jqD7zzQteH6EBHOzxiOhygRhBdt44YH':"PoW Giver 10"
 
+    };
+    const makeAddressUrl = s => {
+
+        if(known_accounts[s]) {
+            s_ = `<strong>${known_accounts[s]}</strong> <nobr>${s.slice(0,24)}</nobr><nobr>${s.slice(24)}</nobr>`;
+        } else {
+            s_ = `<nobr>${s.slice(0,24)}</nobr><nobr>${s.slice(24)}</nobr>`;
+        }
+        if (s === $('#input').value) return formatAddr(s_);
+        return '<a href="/address/' + s + '">' + formatAddr(s_) + '</a>';
+    }
+    const display_txses = (data) => {
+        console.log(data);
+
+        $('.main').style.display = 'block';
+        $('table').style.display = data.length ? 'block' : 'none';
+        $('#next-button').style.display = data.length ? 'block' : 'none';
+        $('.no-tx').style.display = !data.length ? 'block' : 'none';
+
+        var s = $('tbody').innerHTML;
+        var skip = s.length > 0;
+        for (let tx of data) {
+            if(skip) {
+                skip=false;
+                continue;
+            }
+            const date = new Date(tx.utime * 1000);
+
+            const inMsg = tx.in_msg;
+            const outMsg = tx.out_msgs[0];
+
+            const isInbound = Boolean(inMsg?.source);
+
+            const fromRaw = isInbound ? inMsg?.source : outMsg?.source;
+            const toRaw = isInbound ? inMsg?.destination : outMsg?.destination;
+
+            const from = makeAddressUrl(fromRaw);
+            const to = makeAddressUrl(toRaw);
+
+            const msg = isInbound ? inMsg : outMsg;
+            const amount = msg?.value / 1e9 + ' TON';
+            const comment = getComment(msg);
+
+            s += `
+            <tr>
+            <td><a onclick="onClickTx2(${tx.transaction_id.lt}, '${tx.transaction_id.hash}', '${inMsg["destination"]}')">Link</a></td>
+            <td>${date.toLocaleDateString() + ' ' + date.toLocaleTimeString()}</td>
+            <td><div class="addr">${from}</div></td>
+            <td><span class="${isInbound ? 'in' : 'out'}">${isInbound ? 'IN' : 'OUT'}</span></td>
+            <td><div class="addr">${to}</div></td>
+            <td>${amount}</td>
+            <td>${comment}</td>
+        </tr>`;
+            $('#next-button').setAttribute("lt",tx.transaction_id.lt);
+            $('#next-button').setAttribute("hash",tx.transaction_id.hash);
+            $('#next-button').setAttribute("address",isInbound ? inMsg?.destination : outMsg?.source);
+        }
+        $('tbody').innerHTML = s;
+    };
     function scanAddress() {
         $('.tx').style.display = 'none';
 
@@ -388,60 +821,20 @@
             $('.balance-v').innerText = data.balance / 1e9 + ' TON';
         });
 
-        const makeAddressUrl = s => {
-            if (s === address) return formatAddr(s);
-            return '<a href="/address/' + s + '">' + formatAddr(s) + '</a>';
-        }
+        request("getTransactions", {address: address}, display_txses);
+    }
 
-        request("getTransactions", {address: address}, (data) => {
+    const onClickTx = (createdLt, from, to, result) => {
+        console.log(createdLt, from, to);
+        method = result? "tryLocateResultTx": "tryLocateSourceTx";
+        request(method, {source:from, destination:to, created_lt:createdLt}, (data) => {
             console.log(data);
-
-            $('.main').style.display = 'block';
-            $('table').style.display = data.length ? 'block' : 'none';
-            $('.no-tx').style.display = !data.length ? 'block' : 'none';
-
-            var s = '';
-
-            for (let tx of data) {
-                const date = new Date(tx.utime * 1000);
-
-                const inMsg = tx.in_msg;
-                const outMsg = tx.out_msgs[0];
-
-                const isInbound = Boolean(inMsg?.source);
-
-                const fromRaw = isInbound ? inMsg?.source : address;
-                const toRaw = isInbound ? address : outMsg?.destination;
-
-                const from = makeAddressUrl(fromRaw);
-                const to = makeAddressUrl(toRaw);
-
-                const msg = isInbound ? inMsg : outMsg;
-                const amount = msg?.value / 1e9 + ' TON';
-                const comment = getComment(msg);
-
-                s += `
-            <tr>
-            <td>${isInbound ? '' : `<a onclick="onClickTx(${outMsg?.created_lt}, '${fromRaw}', '${toRaw}')">Link</a>`}</td>
-            <td>${date.toLocaleDateString() + ' ' + date.toLocaleTimeString()}</td>
-            <td><div class="addr">${from}</div></td>
-            <td><span class="${isInbound ? 'in' : 'out'}">${isInbound ? 'IN' : 'OUT'}</span></td>
-            <td><div class="addr">${to}</div></td>
-            <td>${amount}</td>
-            <td>${comment}</td>
-        </tr>`
-            }
-            $('tbody').innerHTML = s;
+            setHref('/tx/' + data.transaction_id.lt + ':' + data.transaction_id.hash + ':' + data.in_msg.destination);
         });
     }
 
-    const onClickTx = (createdLt, from, to) => {
-        console.log(createdLt, from, to);
-
-        httpGet(`http://toncenter.com:5555/tryLocateTx?source=${from}&destination=${to}&created_lt=${createdLt}`, (data) => {
-            console.log(data);
-            setHref('/tx/' + data.transaction_id.lt + ':' + data.transaction_id.hash + ':' + data.in_msg.source);
-        });
+    const onClickTx2 = (lt, hash, address) => {
+        setHref('/tx/' + lt + ':' + hash + ':' + address);
     }
 
     $('.main').style.display = 'none';
@@ -471,7 +864,15 @@
     const onClick = () => {
         const value = $('input').value;
         const isTx = value.split(':').length === 3;
+        $('tbody').innerHTML = '';
         setHref((isTx ? '/tx/' : '/address/') + value)
+    }
+
+    const loadNext = () => {
+        const lt = $('#next-button').getAttribute("lt");
+        const hash = $('#next-button').getAttribute("hash");
+        const address = $('#next-button').getAttribute("address");
+        request("getTransactions", {address: address, limit:50, lt:lt, hash:bytesToHex(base64ToBytes(hash))}, display_txses);
     }
 
     const setHref = (newHref) => {
@@ -480,6 +881,15 @@
         if (i === -1) i = href.indexOf('/tx/');
         window.location.href = href.substr(0, i) + newHref;
     }
+
+
+    document.getElementById("input").addEventListener("keyup", function(event) {
+        // Number 13 is the "Enter" key on the keyboard
+        if (event.keyCode === 13) {
+            event.preventDefault();
+            document.getElementById("search-button").click();
+        }
+    });
 </script>
 
 </body>
