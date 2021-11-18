@@ -683,7 +683,8 @@
     function _getComment(msg) {
         if (!msg) return '';
         if (!msg.msg_data) return '';
-        if (msg.msg_data['@type'] !== 'msg.dataText') return '<i>unsupported data</i>';
+        if ((msg.msg_data['@type'] == 'msg.dataRaw') && msg.msg_data.body =="te6cckEBAQEAAgAAAEysuc0=") return '';
+        if (msg.msg_data['@type'] !== 'msg.dataText') return 'unsupported data';
         const base64 = msg.msg_data.text;
         return new TextDecoder().decode(base64ToBytes(base64));
     }
